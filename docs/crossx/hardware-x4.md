@@ -47,6 +47,6 @@ What is known from CrossPoint and the FreeInk SDK, what is measured, and what is
 
 - **open, gate A:** standby current with BLE advertising at 1 s interval and the CPU at 10 MHz. Target: comparable to idle reading. If it is not, standby ships off by default and sync is user-initiated only.
 - **open:** exact board revision(s) of Jonathan's X4(s) and whether they are USB-locked (see [flashing-and-recovery.md](flashing-and-recovery.md)).
-- **open:** can the NimBLE host run peripheral + the page-turner central at once within RAM, or does the `crossx_x4` env drop the page-turner?
+- **resolved:** the `crossx_x4` env drops the BLE page-turner (`FREEINK_CAP_BLE_HID_HOST` unflagged), so the NimBLE host runs the CrossX peripheral only.
 - **open:** does the 247 MTU negotiate with iOS reliably on this stack (iOS usually offers 185 or 251)?
 - **open:** SD write throughput while hashing on the C3 (sets the realistic upload speed).

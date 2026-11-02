@@ -67,7 +67,8 @@ Prerequisites: Python 3.10+, [pioarduino core 6.1.19](https://github.com/pioardu
 git clone --recurse-submodules https://github.com/jtvargas/crossx-firmware.git
 cd crossx-firmware
 
-# Firmware for the original X4 with the CrossX BLE service
+# Firmware for the original X4 with the CrossX BLE service. Leaner than default:
+# English UI only, no BLE page-turner, no serial logging.
 pio run -e crossx_x4
 
 # Plain CrossPoint build for the same board (sanity check that the fork is still a reader)

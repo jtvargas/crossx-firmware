@@ -2,7 +2,7 @@ name: CI (build)
 
 on:
   push:
-    branches: [develop]
+    branches: [develop, main]
   pull_request:
 
 permissions:
@@ -88,6 +88,8 @@ jobs:
         include:
           - env: default
             asset: firmware.bin
+          - env: crossx_x4
+            asset: firmware-crossx_x4.bin
           - env: sticky
             asset: firmware-sticky.bin
           - env: x4pro

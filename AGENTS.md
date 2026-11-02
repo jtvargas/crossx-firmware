@@ -15,6 +15,9 @@ XTEINK X4 with the CrossX sync layer. Read [README.md](README.md) and
   `SyncCoordinator.h` with a test. Changing one is a protocol change: update the doc and the test.
 - Run `cmake -S lib/CrossXSync/test -B build/crossx && cmake --build build/crossx && ctest --test-dir build/crossx`
   after touching the core, and `pio run -e crossx_x4` after touching the build.
+- `crossx_x4` ships lean: English UI only, no BLE page-turner, no serial logging. For a debug
+  build with logs, add flags for one build only:
+  `PLATFORMIO_BUILD_FLAGS="-DENABLE_SERIAL_LOG -DLOG_LEVEL=2" pio run -e crossx_x4`.
 - Hardware claims (standby current, heap, latency) come from `docs/crossx/hardware-x4.md`
   measurements, never from datasheets alone.
 - The web installer is `site/` (static, no build step), assembled with firmware by

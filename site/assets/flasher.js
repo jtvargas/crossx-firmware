@@ -295,9 +295,11 @@ function assertOtaSwitched(ota, expectedApp, expectedSeq) {
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class X4Flasher {
-  constructor(port, { expectedChip = 'ESP32-C3' } = {}) {
+  // log receives esptool-js's own progress lines (chip, stub, MD5 checks) for the page's log view.
+  constructor(port, { expectedChip = 'ESP32-C3', log = null } = {}) {
     this.port = port;
     this.expectedChip = expectedChip;
+    this.log = log;
     this.loader = null;
     this.layout = null;
   }
@@ -313,16 +315,38 @@ export class X4Flasher {
     return navigator.serial.requestPort({ filters: X4_PORT_FILTERS });
   }
 
+  // A running reader can still be printing its serial log when esptool resets it into the
+  // bootloader; those bytes can break the first sync ("Invalid head of packet"). The reset that
+  // the second attempt starts with leaves a quiet ROM, so one retry is enough.
   async connect() {
     await loadEsptool();
-    const transport = new Transport(this.port, false);
-    this.loader = new ESPLoader({ transport, baudrate: 115200, romBaudrate: 115200, enableTracing: false });
-    await this.loader.main();
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.connectOnce();
+        break;
+      } catch (err) {
+        await this.disconnect({ reset: false }).catch(() => {});
+        if (attempt >= 2) throw err;
+        this.log?.(`Connect failed (${err?.message || err}); retrying`);
+        await delay(500);
+      }
+    }
     const chip = this.loader.chip?.CHIP_NAME;
     if (this.expectedChip && chip && chip !== this.expectedChip) {
       await this.disconnect({ reset: false }).catch(() => {});
       throw new Error(`The connected device is an ${chip}, not the X4's ${this.expectedChip}. Nothing was written.`);
     }
+  }
+
+  async connectOnce() {
+    const transport = new Transport(this.port, false);
+    // 0.5.x hex-dumps every received packet to the console regardless of `tracing`; on a 16 MB
+    // backup that formatting dominates the read time.
+    transport.trace = () => {};
+    const log = (line) => this.log?.(String(line));
+    const terminal = { clean() {}, writeLine: log, write: log };
+    this.loader = new ESPLoader({ transport, baudrate: 115200, romBaudrate: 115200, terminal, enableTracing: false });
+    await this.loader.main();
   }
 
   // reset=false leaves the chip in the flasher stub; the user power-cycles it, exactly as
@@ -361,16 +385,18 @@ export class X4Flasher {
     return { raw, ota: parseOtadata(raw) };
   }
 
+  // esptool-js 0.5.x (the release CrossPoint ships) takes images as binary strings.
   async write(data, address, label, onProgress) {
-    await this.loader.writeFlash({
-      fileArray: [{ data, address }],
+    const loader = this.loader;
+    await loader.writeFlash({
+      fileArray: [{ data: loader.ui8ToBstr(data), address }],
       flashSize: 'keep',
       flashMode: 'keep',
       flashFreq: 'keep',
       eraseAll: false,
       compress: true,
       // esptool compares this against the chip's own MD5 of the written range.
-      calculateMD5Hash: (image) => toHex(md5(image)),
+      calculateMD5Hash: (image) => toHex(md5(loader.bstrToUi8(image))),
       reportProgress: (_, written, total) => onProgress?.(label, written, total),
     });
   }
@@ -470,7 +496,7 @@ export class X4Flasher {
               if (attempt >= 3) throw err;
               // Let the stub finish streaming the aborted read, then drop it.
               await delay(500);
-              this.loader.transport.flushInput();
+              await this.loader.transport.flushInput();
             }
           }
         }

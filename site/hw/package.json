@@ -1,0 +1,9 @@
+{
+  "name": "crossx-x4-hw",
+  "private": true,
+  "type": "module",
+  "description": "Drives the web installer's flasher against a real X4 over USB",
+  "dependencies": {
+    "serialport": "13.0.0"
+  }
+}

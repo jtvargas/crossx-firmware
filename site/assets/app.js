@@ -117,6 +117,7 @@ const progress = {
     $('connection-issue').hidden = true;
     $('progress-title').textContent = title;
     $('progress-detail').textContent = '';
+    $('progress-log').textContent = '';
     const list = $('progress-steps');
     list.replaceChildren(
       ...steps.map((name) => {
@@ -131,7 +132,15 @@ const progress = {
   },
   step(index, status) {
     const li = $('progress-steps').children[index];
-    if (li) li.dataset.state = status;
+    if (!li) return;
+    li.dataset.state = status;
+    this.log(`${status === 'running' ? '…' : status === 'done' ? '✓' : '✗'} ${li.textContent}`);
+  },
+  // esptool-js's own lines plus step changes: what to paste into an issue when something stalls.
+  log(line) {
+    const pre = $('progress-log');
+    pre.textContent += `${line.trimEnd()}\n`;
+    pre.scrollTop = pre.scrollHeight;
   },
   percent(value) {
     const clamped = Math.max(0, Math.min(100, value));
@@ -151,6 +160,7 @@ const progress = {
     $('progress-error-note').textContent = note;
     $('progress-error-text').textContent = err?.message || String(err);
     $('progress-error').hidden = false;
+    this.log(`Error: ${err?.message || err}`);
   },
 };
 
@@ -158,6 +168,10 @@ function onFlashProgress(label, current, total) {
   const pct = total ? (current / total) * 100 : 0;
   progress.percent(pct);
   progress.detail(`${label}… ${Math.floor(pct)}%`);
+}
+
+function flasherFor(port) {
+  return new X4Flasher(port, { log: (line) => progress.log(line) });
 }
 
 // --- Running guard ---
@@ -267,7 +281,7 @@ async function install(trigger) {
       throw err;
     }
     progress.step(0, 'done');
-    await new X4Flasher(port).install(firmware, {
+    await flasherFor(port).install(firmware, {
       onStep: (index, _name, status) => progress.step(index + 1, status),
       onProgress: onFlashProgress,
     });
@@ -288,7 +302,7 @@ async function rollback(trigger) {
   if (!port) return;
   const note = 'The reader still boots the firmware it booted before.';
   await run({ action: rollback, trigger, note }, 'Rolling back…', X4Flasher.rollbackSteps(), async () => {
-    const result = await new X4Flasher(port).rollback({
+    const result = await flasherFor(port).rollback({
       onStep: (index, _name, status) => progress.step(index, status),
       onProgress: onFlashProgress,
     });
@@ -302,7 +316,7 @@ async function backup(trigger) {
   if (!port) return;
   const note = 'Reading flash never changes the reader.';
   await run({ action: backup, trigger, note }, 'Backing up 16 MB of flash…', X4Flasher.backupSteps(), async () => {
-    const image = await new X4Flasher(port).backup({
+    const image = await flasherFor(port).backup({
       onStep: (index, _name, status) => progress.step(index, status),
       onProgress: onFlashProgress,
     });
@@ -321,7 +335,7 @@ async function restore(trigger) {
   const note = 'If writing started, restore again before restarting the reader.';
   await run({ action: restore, trigger, note }, 'Restoring backup…', X4Flasher.restoreSteps(), async () => {
     const image = new Uint8Array(await state.restoreFile.arrayBuffer());
-    await new X4Flasher(port).restore(image, {
+    await flasherFor(port).restore(image, {
       onStep: (index, _name, status) => progress.step(index, status),
       onProgress: onFlashProgress,
     });

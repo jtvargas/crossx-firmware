@@ -446,6 +446,23 @@ details > summary {
   font-size: 13px;
 }
 
+.log {
+  margin-top: 14px;
+}
+
+.log pre {
+  max-height: 220px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink-2);
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .link {
   margin-top: 8px;
   padding: 0;

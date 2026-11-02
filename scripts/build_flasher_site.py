@@ -31,7 +31,7 @@ BUILDS = {
         "id": "crossx",
         "name": "CrossX",
         "channel": "Pre-alpha",
-        "description": "CrossPoint Reader plus the CrossX sync foundation. Not yet tested on hardware.",
+        "description": "A leaner CrossPoint Reader: English UI, no Bluetooth page-turner, and the CrossX sync foundation.",
         "file": "crossx-x4.bin",
         "versionSuffix": "-crossx",
         "requiresAck": True,
@@ -40,7 +40,7 @@ BUILDS = {
         "id": "crosspoint",
         "name": "CrossPoint",
         "channel": "Plain reader",
-        "description": "The same source without CrossX. Install it to go back to a plain reader.",
+        "description": "Full CrossPoint from the same source: every language and the page-turner. Install it to go back.",
         "file": "crosspoint-x4.bin",
         "versionSuffix": "",
         "requiresAck": False,
@@ -92,7 +92,7 @@ def main() -> None:
     out: Path = args.out
     if out.exists():
         shutil.rmtree(out)
-    shutil.copytree(ROOT / "site", out, ignore=shutil.ignore_patterns("test"))
+    shutil.copytree(ROOT / "site", out, ignore=shutil.ignore_patterns("test", "hw", "package.json"))
 
     version = crosspoint_version()
     builds = []

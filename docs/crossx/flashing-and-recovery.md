@@ -29,7 +29,16 @@ Before any of that, the page checks the download against the size and SHA-256 in
 
 The published builds come from `.github/workflows/pages.yml`: after `CI (build)` succeeds on a push to `main`, it takes that run's `crossx_x4` and `default` artifacts, runs `scripts/build_flasher_site.py`, and deploys `site/` to GitHub Pages. A local `pio run` build installs through *Advanced → Custom .bin*.
 
-The installer is adapted from [CrossPoint Tools](https://github.com/crosspoint-reader/crosspoint-tools) (MIT) and vendors [esptool-js](https://github.com/espressif/esptool-js) 0.7.1 (`site/assets/vendor/esptool-js/bundle.js`, Apache-2.0). To upgrade esptool-js, replace that bundle with the `bundle.js` from the new npm package and repeat an install, a rollback, and a backup on a real X4.
+The installer is adapted from [CrossPoint Tools](https://github.com/crosspoint-reader/crosspoint-tools) (MIT) and vendors [esptool-js](https://github.com/espressif/esptool-js) 0.5.7 (`site/assets/vendor/esptool-js/bundle.js`, Apache-2.0), the release crosspointreader.com ships; 0.7.1 stalled at the first flash read in the browser. To change esptool-js, replace that bundle with the `bundle.js` from the npm package, then prove an install, a rollback, and a backup on a real X4 with the hardware harness, which runs the installer's own `flasher.js` over USB from the command line:
+
+```bash
+cd site/hw && npm ci
+node x4.mjs probe                      # chip, partition table, which slot boots
+node x4.mjs install <firmware.bin|url> --reset
+node x4.mjs rollback
+node x4.mjs backup x4-backup.bin       # about 25 minutes, like the web page
+node x4.mjs monitor 20 --reset         # boot log (crossx_x4 has no app logging; use a debug build)
+```
 
 ### Command line
 

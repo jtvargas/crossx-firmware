@@ -1,0 +1,141 @@
+name: Web installer (GitHub Pages)
+
+# Builds the X4 images and publishes web/ plus the factory images to GitHub Pages
+# so https://jtvargas.github.io/crossx-firmware/ always flashes the current main.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        env: [crossx_x4, default]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: false
+
+      - name: Install PlatformIO Core
+        run: |
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+          # Same pins as ci.yml: platform-espressif32's builder imports these unconditionally.
+          uv pip install --system -U "littlefs-python>=0.16.0" "fatfs-ng>=0.1.14" "pyyaml>=6.0.2" \
+            "rich-click>=1.8.6" "zopfli>=0.2.2" "intelhex>=2.3.0" "rich>=14.0.0" "urllib3<2" \
+            "cryptography>=45.0.3" "certifi>=2025.8.3" "ecdsa>=0.19.1" "bitstring>=4.3.1" \
+            "reedsolo>=1.5.3,<1.8" "esp-idf-size>=2.0.0" "esp-coredump>=1.14.0"
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-v3-${{ runner.os }}-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'scripts/patch_pioarduino_cache.py') }}
+          restore-keys: pio-v3-${{ runner.os }}-${{ matrix.env }}-
+
+      - name: Pin pioarduino core inside the platform penv
+        run: |
+          set -euo pipefail
+          # See ci.yml: keep the nested penv core on the same version as the outer core.
+          pio pkg install -e ${{ matrix.env }}
+          uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
+          ~/.platformio/penv/bin/pio --version
+
+      - name: Build ${{ matrix.env }} firmware
+        run: pio run -e ${{ matrix.env }}
+
+      - name: Collect factory image
+        run: |
+          set -euo pipefail
+          # firmware.factory.bin is the merged image (bootloader, partitions, boot_app0, app)
+          # the platform writes next to firmware.bin. Flashing it at 0x0 resets the OTA
+          # slot selection, so the device always boots the image just written.
+          mkdir -p out
+          cp ".pio/build/${{ matrix.env }}/firmware.factory.bin" "out/${{ matrix.env }}.factory.bin"
+          cp ".pio/build/${{ matrix.env }}/firmware.bin" "out/${{ matrix.env }}.bin"
+          ls -l out
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: firmware-${{ matrix.env }}
+          path: out/
+          if-no-files-found: error
+
+  site:
+    name: Assemble site
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: firmware-*
+          merge-multiple: true
+          path: site/firmware
+
+      - name: Assemble site
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cp web/* site/
+          short="${SHA:0:7}"
+          version="${REF_NAME}-${short}"
+          sed -i "s/__VERSION__/${version}/" site/manifest-*.json
+          cat > site/build-info.json <<JSON
+          {
+            "ref": "${REF_NAME}",
+            "commit": "${short}",
+            "commitUrl": "${REPO_URL}/commit/${SHA}",
+            "date": "$(date -u +%Y-%m-%d)"
+          }
+          JSON
+          touch site/.nojekyll
+          ls -lR site
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site/
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

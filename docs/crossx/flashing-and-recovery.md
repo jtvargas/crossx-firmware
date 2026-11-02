@@ -15,6 +15,14 @@
 
 ## Flashing
 
+### Web installer (no toolchain)
+
+https://jtvargas.github.io/crossx-firmware/ flashes the latest `main` build from Chrome or Edge over USB-C, using [ESP Web Tools](https://esphome.github.io/esp-web-tools/). It writes one *factory image* (bootloader at `0x0`, partition table at `0x8000`, `boot_app0` at `0xe000`, app at `0x10000`), so the device always boots into the freshly written `app0` slot regardless of what OTA state it had before. The page also offers plain CrossPoint `default` from the same commit as the way back.
+
+The images come from [`.github/workflows/pages.yml`](../../.github/workflows/pages.yml), which runs on every push to `main`. The page is static: the sources live in [`web/`](../../web/).
+
+### Command line
+
 ```bash
 pio run -e crossx_x4 -t upload          # USB serial, 921600 baud
 # or, from a built image:

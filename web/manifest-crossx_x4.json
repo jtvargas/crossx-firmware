@@ -1,0 +1,11 @@
+{
+  "name": "CrossX Firmware (XTEINK X4)",
+  "version": "__VERSION__",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-C3",
+      "parts": [{ "path": "firmware/crossx_x4.factory.bin", "offset": 0 }]
+    }
+  ]
+}

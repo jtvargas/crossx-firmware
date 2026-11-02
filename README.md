@@ -51,6 +51,12 @@ The full plan, with exit criteria per phase, is in [docs/crossx/roadmap.md](docs
 
 The honest hardware notes, including what is *not* yet known about standby battery life, are in [docs/crossx/hardware-x4.md](docs/crossx/hardware-x4.md).
 
+## Installing
+
+The quickest way to try CrossX is the **web installer**: https://jtvargas.github.io/crossx-firmware/
+
+It flashes the latest `main` build to an original X4 from Chrome or Edge over USB-C, with no toolchain on your computer. The same page can install plain CrossPoint on the same device as a way back. Every push to `main` rebuilds both images, so the installer always matches this repository.
+
 > **Before flashing anything:** read [docs/crossx/flashing-and-recovery.md](docs/crossx/flashing-and-recovery.md). Some X4 units are USB-locked and can only be recovered through specific paths. Do not flash an experimental image without a verified way back.
 
 ## Building
@@ -74,7 +80,7 @@ cmake -S lib/CrossXSync/test -B build/crossx && cmake --build build/crossx && ct
 cmake -S test -B build/test && cmake --build build/test && ctest --test-dir build/test -j
 ```
 
-Flashing: `pio run -e crossx_x4 -t upload` once you have read the recovery notes.
+Flashing a local build: `pio run -e crossx_x4 -t upload` once you have read the recovery notes, or use the [web installer](https://jtvargas.github.io/crossx-firmware/) for the published `main` build.
 
 ## Repository map
 
@@ -86,6 +92,7 @@ lib/CrossXSync/        CrossX core: pure C++, no radio or filesystem, fully host
   src/LibraryCommit.*    staging/receipt/commit paths and the idempotency decision table
   test/                  GoogleTest suite (52 tests)
 docs/crossx/           architecture, protocol v1, hardware notes, flashing & recovery, roadmap
+web/                   browser installer (ESP Web Tools) published to GitHub Pages
 src/, lib/, freeink-sdk/   CrossPoint Reader, unchanged apart from the crossx_x4 build env
 platformio.ini         build environments; CrossX adds [env:crossx_x4]
 ```

@@ -1,0 +1,11 @@
+{
+  "name": "CrossPoint Reader (plain, XTEINK X4)",
+  "version": "__VERSION__",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-C3",
+      "parts": [{ "path": "firmware/default.factory.bin", "offset": 0 }]
+    }
+  ]
+}

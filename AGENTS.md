@@ -1,4 +1,29 @@
-# CrossPoint Reader agent guide
+# CrossX Firmware agent guide
+
+This repository is Jonathan Vargas's (`jtvargas`) fork of CrossPoint Reader, targeting the original
+XTEINK X4 with the CrossX sync layer. Read [README.md](README.md) and
+[docs/crossx/architecture.md](docs/crossx/architecture.md) first.
+
+## CrossX specifics
+
+- CrossX code lives in `lib/CrossXSync` (pure, host-tested), `docs/crossx`, and the `crossx_x4`
+  env in `platformio.ini`. Keep CrossPoint code untouched unless a change is needed to wire the
+  sync layer in; that keeps upstream cherry-picks cheap.
+- `lib/CrossXSync` must not include Arduino, NimBLE, SdFat, or FreeRTOS headers. Platform glue
+  goes in `src/crossx/` behind `crossx::sync::Ports`.
+- Every bound in `docs/crossx/protocol-v1.md` is a constant in `ProtocolV1.h` or
+  `SyncCoordinator.h` with a test. Changing one is a protocol change: update the doc and the test.
+- Run `cmake -S lib/CrossXSync/test -B build/crossx && cmake --build build/crossx && ctest --test-dir build/crossx`
+  after touching the core, and `pio run -e crossx_x4` after touching the build.
+- Hardware claims (standby current, heap, latency) come from `docs/crossx/hardware-x4.md`
+  measurements, never from datasheets alone.
+- In this fork, Devin acts as `jtvargas` and may commit, push, and open PRs when Jonathan asks.
+  The "Human ownership" rules below are upstream CrossPoint's; they still describe the care
+  expected, and hardware testing before merge remains Jonathan's job.
+
+---
+
+# CrossPoint Reader agent guide (upstream)
 
 CrossPoint Reader is open-source e-reader firmware for Xteink and other FreeInk-supported devices. Its mission is a lightweight, high-performance reading experience focused on EPUB rendering. The X3/X4's ESP32-C3 remains the resource baseline: roughly 380 KB usable RAM, no PSRAM, and a single framebuffer sized for the selected panel. Other board profiles have different CPUs, display sizes, input, and memory capabilities; check the selected profile before assuming them.
 

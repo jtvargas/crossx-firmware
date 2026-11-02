@@ -1,0 +1,10 @@
+{
+  "name": "CrossXSync",
+  "version": "0.1.0",
+  "description": "CrossX sync core for e-ink readers: the BLE control protocol, the session state machine, the power policy, and the library commit rules. Pure C++ with no radio or filesystem, so the host tests cover every bound.",
+  "build": {
+    "srcDir": "src"
+  },
+  "frameworks": "*",
+  "platforms": "*"
+}

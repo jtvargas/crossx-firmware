@@ -26,6 +26,8 @@ TEST(LibraryCommit, PathsAreUnderCrossXDirectories) {
   char out[kMaxPathChars + 1];
   ASSERT_TRUE(stagingPath(kId, out, sizeof(out)));
   EXPECT_STREQ(out, "/crossx/incoming/0123456789abcdef0123456789abcdef.part");
+  ASSERT_TRUE(pendingReceiptPath(kId, out, sizeof(out)));
+  EXPECT_STREQ(out, "/crossx/receipts/0123456789abcdef0123456789abcdef.pending");
   ASSERT_TRUE(receiptPath(kId, out, sizeof(out)));
   EXPECT_STREQ(out, "/crossx/receipts/0123456789abcdef0123456789abcdef.meta");
   ASSERT_TRUE(commitPath("Deep Work", kId, out, sizeof(out)));
@@ -35,6 +37,9 @@ TEST(LibraryCommit, PathsAreUnderCrossXDirectories) {
 TEST(LibraryCommit, InvalidIdNeverYieldsAPath) {
   char out[kMaxPathChars + 1] = "junk";
   EXPECT_FALSE(stagingPath("../x", out, sizeof(out)));
+  EXPECT_STREQ(out, "");
+  strcpy(out, "junk");
+  EXPECT_FALSE(pendingReceiptPath("../x", out, sizeof(out)));
   EXPECT_STREQ(out, "");
   strcpy(out, "junk");
   EXPECT_FALSE(commitPath("Title", "nope", out, sizeof(out)));
@@ -59,6 +64,14 @@ TEST(LibraryCommit, TitleSanitising) {
   EXPECT_STREQ(out, "Untitled");
   sanitizeTitle("...", out, sizeof(out));
   EXPECT_STREQ(out, "Untitled");
+  sanitizeTitle("Foo - Bar", out, sizeof(out));
+  EXPECT_STREQ(out, "Foo-Bar");
+  sanitizeTitle("-x", out, sizeof(out));
+  EXPECT_STREQ(out, "x");
+  sanitizeTitle("a..b", out, sizeof(out));
+  EXPECT_STREQ(out, "a-b");
+  sanitizeTitle("snake_case_title-", out, sizeof(out));
+  EXPECT_STREQ(out, "snake_case_title");
   const std::string longTitle(500, 'a');
   EXPECT_EQ(sanitizeTitle(longTitle.c_str(), out, sizeof(out)), kMaxTitleChars);
   EXPECT_EQ(strlen(out), kMaxTitleChars);
@@ -86,12 +99,38 @@ TEST(LibraryCommit, DecisionTable) {
   EXPECT_EQ(decide(kId, kDigest, kMaxEpubBytes, false, nullptr), CommitDecision::Accept);
 }
 
-TEST(LibraryCommit, LeftoverReconciliationOnlyTouchesOurParts) {
+TEST(LibraryCommit, BootDeletesEveryWellFormedPartAndKeepsTheRest) {
   EXPECT_EQ(leftoverAction("0123456789abcdef0123456789abcdef.part"), LeftoverAction::Delete);
   EXPECT_EQ(leftoverAction("0123456789abcdef0123456789abcdef.epub"), LeftoverAction::Keep);
   EXPECT_EQ(leftoverAction("notes.txt"), LeftoverAction::Keep);
   EXPECT_EQ(leftoverAction("0123456789ABCDEF0123456789abcdef.part"), LeftoverAction::Keep);
   EXPECT_EQ(leftoverAction(nullptr), LeftoverAction::Keep);
+}
+
+TEST(LibraryCommit, PendingReceiptIsPromotedOnlyWhenTheBookLanded) {
+  EXPECT_EQ(pendingReceiptAction(true), PendingAction::Promote);
+  EXPECT_EQ(pendingReceiptAction(false), PendingAction::Discard);
+}
+
+TEST(LibraryCommit, ReceiptMacMessageIsNewlineSeparatedFields) {
+  char out[kMaxReceiptMacMessageChars + 1];
+  const char* path = "/Books/CrossX/Deep-Work-01234567.epub";
+  const size_t n = buildReceiptMacMessage(kId, kDigest, 1234567, path, out, sizeof(out));
+  const std::string expected = std::string(kId) + "\n" + kDigest + "\n1234567\n" + path;
+  EXPECT_EQ(std::string(out), expected);
+  EXPECT_EQ(n, expected.size());
+
+  // The largest message fits the fixed buffer.
+  const std::string longest(kMaxPathChars, 'p');
+  EXPECT_EQ(buildReceiptMacMessage(kId, kDigest, UINT32_MAX, longest.c_str(), out, sizeof(out)),
+            kMaxReceiptMacMessageChars);
+
+  EXPECT_EQ(buildReceiptMacMessage("nope", kDigest, 1, path, out, sizeof(out)), 0u);
+  EXPECT_STREQ(out, "");
+  EXPECT_EQ(buildReceiptMacMessage(kId, "bad", 1, path, out, sizeof(out)), 0u);
+  EXPECT_EQ(buildReceiptMacMessage(kId, kDigest, 1, "", out, sizeof(out)), 0u);
+  EXPECT_EQ(buildReceiptMacMessage(kId, kDigest, 1, path, out, 40), 0u);
+  EXPECT_STREQ(out, "");
 }
 
 }  // namespace

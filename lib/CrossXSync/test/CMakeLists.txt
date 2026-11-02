@@ -35,6 +35,14 @@ add_executable(CrossXSyncTest
   SyncCoordinatorTest.cpp
   LibraryCommitTest.cpp
   SyncPowerPolicyTest.cpp
+  PageTurnerMirrorTest.cpp
+)
+# PageTurnerMirrorTest reads the page turner's radio thresholds, which the heap gate mirrors. Those
+# headers are pure C++ too, but only the test sees them: crossx_sync_core stays independent.
+target_include_directories(CrossXSyncTest PRIVATE
+  ${CROSSX_ROOT}/../BlePageTurner/include
+  ${CROSSX_ROOT}/../BlePageTurner/src
+  ${CROSSX_ROOT}/../../freeink-sdk/libs/network/BleKeyboardHost/include
 )
 target_link_libraries(CrossXSyncTest PRIVATE crossx_sync_core GTest::gtest_main)
 gtest_discover_tests(CrossXSyncTest)

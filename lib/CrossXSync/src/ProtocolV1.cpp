@@ -83,6 +83,14 @@ bool decodeAuthRequest(const uint8_t* payload, size_t length, AuthRequest& out) 
   return true;
 }
 
+size_t encodeAuthResult(const AuthResult& in, uint8_t* out, size_t capacity) {
+  const size_t length = in.result == Result::Ok ? kAuthResultBytes : 1;
+  if (out == nullptr || capacity < length) return 0;
+  out[0] = static_cast<uint8_t>(in.result);
+  if (in.result == Result::Ok) memcpy(out + 1, in.deviceMac, kMacBytes);
+  return length;
+}
+
 bool decodeStartSyncRequest(const uint8_t* payload, size_t length, StartSyncRequest& out) {
   if (payload == nullptr || length != kStartSyncRequestBytes) return false;
   memcpy(out.sessionId, payload, kSessionIdBytes);
@@ -95,9 +103,9 @@ size_t encodeStartSyncResult(const StartSyncResult& in, uint8_t* out, size_t cap
   if (out == nullptr || capacity < kStartSyncResultBytes) return 0;
   out[0] = static_cast<uint8_t>(in.result);
   memcpy(out + 1, in.sessionId, kSessionIdBytes);
-  putU32(out + 1 + kSessionIdBytes, in.ipv4);
-  putU16(out + 5 + kSessionIdBytes, in.httpPort);
-  putU16(out + 7 + kSessionIdBytes, in.ttlSeconds);
+  memcpy(out + 1 + kSessionIdBytes, in.ipv4, kIpv4Bytes);
+  putU16(out + 1 + kSessionIdBytes + kIpv4Bytes, in.httpPort);
+  putU16(out + 3 + kSessionIdBytes + kIpv4Bytes, in.ttlSeconds);
   return kStartSyncResultBytes;
 }
 
@@ -126,6 +134,16 @@ size_t buildAuthMessage(const uint8_t (&deviceNonce)[kNonceBytes], const uint8_t
   memcpy(out + sizeof(kLabel) + kNonceBytes, appNonce, kNonceBytes);
   putU32(out + sizeof(kLabel) + 2 * kNonceBytes, counter);
   return kAuthMessageBytes;
+}
+
+size_t buildDeviceProofMessage(const uint8_t (&appNonce)[kNonceBytes], const uint8_t (&deviceNonce)[kNonceBytes],
+                               uint32_t counter, uint8_t (&out)[kDeviceProofMessageBytes]) {
+  static constexpr char kLabel[13] = {'C', 'R', 'O', 'S', 'S', 'X', '-', 'D', 'E', 'V', '-', 'v', '1'};
+  memcpy(out, kLabel, sizeof(kLabel));
+  memcpy(out + sizeof(kLabel), appNonce, kNonceBytes);
+  memcpy(out + sizeof(kLabel) + kNonceBytes, deviceNonce, kNonceBytes);
+  putU32(out + sizeof(kLabel) + 2 * kNonceBytes, counter);
+  return kDeviceProofMessageBytes;
 }
 
 bool constantTimeEqual(const uint8_t* a, const uint8_t* b, size_t length) {

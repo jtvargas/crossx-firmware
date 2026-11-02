@@ -12,7 +12,7 @@ constexpr bool isSessionState(State s) {
   return s == State::WifiConnecting || s == State::TransferReady || s == State::Transferring || s == State::Finishing;
 }
 
-constexpr bool radioOn(State s) { return s != State::Idle; }
+constexpr bool acceptsUploads(State s) { return s == State::TransferReady || s == State::Transferring; }
 
 constexpr DeviceState toDeviceState(State s) { return static_cast<DeviceState>(static_cast<uint8_t>(s)); }
 
@@ -62,6 +62,8 @@ const char* reasonName(Reason reason) {
       return "AuthFailed";
     case Reason::LockedOut:
       return "LockedOut";
+    case Reason::VersionMismatch:
+      return "VersionMismatch";
     case Reason::StartSync:
       return "StartSync";
     case Reason::CancelSync:
@@ -82,6 +84,8 @@ const char* reasonName(Reason reason) {
       return "StorageFailed";
     case Reason::LowBattery:
       return "LowBattery";
+    case Reason::LowMemory:
+      return "LowMemory";
     case Reason::PowerOff:
       return "PowerOff";
     case Reason::CleanupDone:
@@ -92,8 +96,6 @@ const char* reasonName(Reason reason) {
 
 SyncCoordinator::SyncCoordinator(Ports& ports) : ports_(ports) {}
 
-bool SyncCoordinator::authenticated() const { return authDone_ && state_ != State::Idle && state_ != State::Cleanup; }
-
 // --- Transitions -------------------------------------------------------------------------------
 
 void SyncCoordinator::transition(State to, Reason reason, uint32_t nowMs) {
@@ -103,34 +105,70 @@ void SyncCoordinator::transition(State to, Reason reason, uint32_t nowMs) {
   lastReason_ = reason;
   stateSinceMs_ = nowMs;
   lastActivityMs_ = nowMs;
-  if (radioOn(to) && !radioOn(from)) ports_.startAdvertising();
-  if (to == State::Idle && radioOn(from)) ports_.stopAdvertising();
+  // The radio advertises iff the state is Advertising, whichever edge leads in or out.
+  if (from == State::Advertising) ports_.stopAdvertising();
+  if (to == State::Advertising) ports_.startAdvertising();
   ports_.onStateChanged(from, to, reason);
 }
 
-void SyncCoordinator::enterCleanup(Reason reason, uint32_t nowMs) {
-  // Every path out of a session goes through here, so the radio, Wi-Fi, and receiver are torn
-  // down in one order regardless of what failed.
-  if (state_ == State::Cleanup) return;
-  ports_.httpStop();
-  ports_.wifiStop();
-  ports_.disconnectCentral();
-  sessionActive_ = false;
+Reason SyncCoordinator::advertisingBlocker() const {
+  // Without the card nothing can be stored. An unpaired device still advertises: that is how it pairs.
+  if (!env_.sdMounted) return Reason::StorageFailed;
+  // The reader keeps one large block whether or not the BLE host still has to come up.
+  if (env_.largestFreeBlock < kReaderLargestBlockBytes) return Reason::LowMemory;
+  if (!env_.bleHostRunning && env_.freeHeap < kBleHostBytes + kReaderLargestBlockBytes) return Reason::LowMemory;
+  return Reason::None;
+}
+
+void SyncCoordinator::releaseLink() {
+  // Forget the link as soon as it is dropped: its disconnect event arrives later and is ignored.
+  if (linked_) ports_.disconnectCentral(connHandle_);
+  linked_ = false;
   helloDone_ = false;
   authDone_ = false;
-  ipv4_ = 0;
+}
+
+void SyncCoordinator::linkGone(Reason reason, uint32_t nowMs) {
+  helloDone_ = false;
+  authDone_ = false;
+  switch (state_) {
+    case State::Connected:
+    case State::Authenticated:
+      transition(State::Advertising, reason, nowMs);
+      return;
+    case State::WifiConnecting:
+      // The app only learns the address from START_SYNC's result; without the link it cannot upload.
+      enterCleanup(reason, nowMs);
+      return;
+    default:
+      // During a transfer the BLE link is optional: the upload runs over Wi-Fi and the receipt is
+      // durable on SD. Keep going; the idle timer closes the session if the app never finishes.
+      return;
+  }
+}
+
+void SyncCoordinator::teardown() {
+  // One order for every exit, whatever failed: the receiver first so no upload outlives Wi-Fi, then
+  // Wi-Fi, then the link.
+  ports_.httpStop();
+  ports_.wifiStop();
+  releaseLink();
+  sessionActive_ = false;
+  uploadInFlight_ = false;
+  inFlightBytes_ = 0;
+  memset(ipv4_, 0, sizeof(ipv4_));
   httpPort_ = 0;
+}
+
+void SyncCoordinator::enterCleanup(Reason reason, uint32_t nowMs) {
+  if (state_ == State::Cleanup) return;
+  if (state_ != State::Error) teardown();  // Error tore down on entry.
   transition(State::Cleanup, reason, nowMs);
 }
 
 void SyncCoordinator::fail(Reason reason, uint32_t nowMs) {
   if (state_ == State::Error || state_ == State::Cleanup || state_ == State::Idle) return;
-  ports_.httpStop();
-  ports_.wifiStop();
-  ports_.disconnectCentral();
-  sessionActive_ = false;
-  helloDone_ = false;
-  authDone_ = false;
+  teardown();
   transition(State::Error, reason, nowMs);
 }
 
@@ -138,8 +176,9 @@ void SyncCoordinator::fail(Reason reason, uint32_t nowMs) {
 
 void SyncCoordinator::requestAdvertising(uint32_t nowMs) {
   if (state_ != State::Idle) return;
-  if (!env_.paired && !env_.sdMounted) {
-    // Nothing useful can happen; stay dark rather than advertise a device that cannot store.
+  const Reason blocker = advertisingBlocker();
+  if (blocker != Reason::None) {
+    lastReason_ = blocker;  // Stay dark; the UI says why.
     return;
   }
   transition(State::Advertising, Reason::UserRequest, nowMs);
@@ -154,9 +193,7 @@ void SyncCoordinator::requestIdle(uint32_t nowMs) {
       return;
     case State::Connected:
     case State::Authenticated:
-      ports_.disconnectCentral();
-      helloDone_ = false;
-      authDone_ = false;
+      releaseLink();
       transition(State::Idle, Reason::UserRequest, nowMs);
       return;
     case State::Cleanup:
@@ -173,34 +210,25 @@ void SyncCoordinator::requestIdle(uint32_t nowMs) {
 
 // --- Radio inputs ------------------------------------------------------------------------------
 
-void SyncCoordinator::onCentralConnected(uint32_t nowMs) {
+void SyncCoordinator::onCentralConnected(uint16_t connHandle, uint32_t nowMs) {
   if (state_ != State::Advertising) {
-    // A second central during a session, or a connection while idle: not ours to serve.
-    ports_.disconnectCentral();
+    // A second central during a session, or a connection while not advertising: not ours to serve.
+    // Dropped by its own handle, so the link we do serve is untouched.
+    ports_.disconnectCentral(connHandle);
     return;
   }
+  linked_ = true;
+  connHandle_ = connHandle;
   helloDone_ = false;
   authDone_ = false;
   transition(State::Connected, Reason::BleConnected, nowMs);
 }
 
-void SyncCoordinator::onCentralDisconnected(uint32_t nowMs) {
-  helloDone_ = false;
-  authDone_ = false;
-  switch (state_) {
-    case State::Connected:
-    case State::Authenticated:
-      transition(State::Advertising, Reason::BleDisconnected, nowMs);
-      return;
-    case State::WifiConnecting:
-      // The app only learns the address from START_SYNC's result; without the link it cannot upload.
-      enterCleanup(Reason::BleDisconnected, nowMs);
-      return;
-    default:
-      // During a transfer the BLE link is optional: the upload runs over Wi-Fi and the receipt is
-      // durable on SD. Keep going; the idle timer closes the session if the app never finishes.
-      return;
-  }
+void SyncCoordinator::onCentralDisconnected(uint16_t connHandle, uint32_t nowMs) {
+  // A rejected second central, a link the coordinator already dropped, or nobody's: not the session's.
+  if (!linked_ || connHandle != connHandle_) return;
+  linked_ = false;
+  linkGone(Reason::BleDisconnected, nowMs);
 }
 
 bool SyncCoordinator::rateLimited(uint32_t nowMs) {
@@ -209,28 +237,31 @@ bool SyncCoordinator::rateLimited(uint32_t nowMs) {
   return false;
 }
 
-void SyncCoordinator::onControlWrite(const uint8_t* bytes, size_t length, uint32_t nowMs) {
-  if (state_ == State::Idle || state_ == State::Advertising || state_ == State::Cleanup || state_ == State::Error) {
-    return;  // No central we trust enough to answer.
-  }
+void SyncCoordinator::onControlWrite(uint16_t connHandle, const uint8_t* bytes, size_t length, uint32_t nowMs) {
+  // Only the link this coordinator serves is answered; it holds one only from Connected to Transferring.
+  if (!linked_ || connHandle != connHandle_) return;
+  // Counted before parsing, so junk costs the device no more than a well-formed request.
+  const bool limited = rateLimited(nowMs);
   Frame frame{};
-  const ParseStatus parsed = parseFrame(bytes, length, frame);
-  if (parsed != ParseStatus::Ok) {
+  if (parseFrame(bytes, length, frame) != ParseStatus::Ok) {
+    if (limited) return;  // A burst of junk earns at most one answer per interval.
     // Malformed input is answered once with the sequence it carried, if there was one.
-    const uint16_t seq = length >= 4 ? static_cast<uint16_t>(bytes[2] | (bytes[3] << 8)) : 0;
+    const bool hasHeader = bytes != nullptr && length >= 4;
+    const uint16_t seq = hasHeader ? static_cast<uint16_t>(bytes[2] | (bytes[3] << 8)) : 0;
     const Opcode op =
-        length >= 1 ? static_cast<Opcode>(bytes[0] & ~static_cast<uint8_t>(Opcode::ResultBit)) : Opcode::Hello;
+        hasHeader ? static_cast<Opcode>(bytes[0] & ~static_cast<uint8_t>(Opcode::ResultBit)) : Opcode::Hello;
     replyCode(op, seq, Result::BadFrame);
     return;
   }
-  if (rateLimited(nowMs)) {
+  if (limited) {
     replyCode(frame.header.opcode, frame.header.sequence, Result::RateLimited);
     return;
   }
-  lastActivityMs_ = nowMs;
+  // Commands keep an authenticated link alive; during a transfer only upload traffic does.
+  if (state_ == State::Authenticated) lastActivityMs_ = nowMs;
   switch (frame.header.opcode) {
     case Opcode::Hello:
-      handleHello(frame);
+      handleHello(frame, nowMs);
       return;
     case Opcode::Auth:
       handleAuth(frame, nowMs);
@@ -263,7 +294,7 @@ void SyncCoordinator::replyCode(Opcode request, uint16_t sequence, Result result
   reply(request, sequence, code, sizeof(code));
 }
 
-void SyncCoordinator::handleHello(const Frame& frame) {
+void SyncCoordinator::handleHello(const Frame& frame, uint32_t nowMs) {
   HelloRequest req{};
   if (!decodeHelloRequest(frame.payload, frame.header.payloadLength, req)) {
     replyCode(Opcode::Hello, frame.header.sequence, Result::BadFrame);
@@ -273,24 +304,36 @@ void SyncCoordinator::handleHello(const Frame& frame) {
   res.major = kProtocolMajor;
   res.minor = kProtocolMinor;
   res.features = kFeatureWifiStation | kFeatureReceipts | kFeatureCancel;
-  res.state = toDeviceState(state_);
-  if (!versionCompatible(req.major)) {
+  uint8_t nonce[kNonceBytes];
+  if (state_ != State::Connected && state_ != State::Authenticated) {
+    res.result = Result::Busy;  // A session runs on this link; a new handshake would change nothing it uses.
+  } else if (!versionCompatible(req.major)) {
     res.result = Result::UnsupportedVersion;
   } else if (!env_.paired) {
     res.result = Result::NotPaired;
-  } else if (!ports_.randomNonce(deviceNonce_)) {
+  } else if (!ports_.randomNonce(nonce)) {
     res.result = Result::Internal;
   } else {
+    memcpy(deviceNonce_, nonce, kNonceBytes);
     memcpy(appNonce_, req.appNonce, kNonceBytes);
     memcpy(res.deviceNonce, deviceNonce_, kNonceBytes);
     helloDone_ = true;
     authDone_ = false;  // A fresh HELLO always needs a fresh AUTH.
-    lastReason_ = Reason::HelloOk;
     res.result = Result::Ok;
+    if (state_ == State::Authenticated) {
+      // Trust starts over from this HELLO, and so does the unauthenticated clock.
+      transition(State::Connected, Reason::HelloOk, nowMs);
+    } else {
+      lastReason_ = Reason::HelloOk;
+    }
   }
+  res.state = toDeviceState(state_);
   uint8_t payload[kHelloResultBytes];
   reply(Opcode::Hello, frame.header.sequence, payload, encodeHelloResult(res, payload, sizeof(payload)));
-  if (res.result == Result::UnsupportedVersion) ports_.disconnectCentral();
+  if (res.result == Result::UnsupportedVersion) {
+    releaseLink();
+    linkGone(Reason::VersionMismatch, nowMs);
+  }
 }
 
 void SyncCoordinator::handleAuth(const Frame& frame, uint32_t nowMs) {
@@ -328,7 +371,8 @@ void SyncCoordinator::handleAuth(const Frame& frame, uint32_t nowMs) {
       if (lockedUntilMs_ == 0) lockedUntilMs_ = 1;
       replyCode(Opcode::Auth, frame.header.sequence, Result::LockedOut);
       lastReason_ = Reason::LockedOut;
-      ports_.disconnectCentral();
+      releaseLink();
+      linkGone(Reason::LockedOut, nowMs);
       return;
     }
     replyCode(Opcode::Auth, frame.header.sequence, Result::AuthFailed);
@@ -336,9 +380,20 @@ void SyncCoordinator::handleAuth(const Frame& frame, uint32_t nowMs) {
     return;
   }
   authFailures_ = 0;
-  ports_.storeAuthCounter(req.counter);
+  // Mutual: the device proves it holds the key too, so the app never syncs to an impostor.
+  uint8_t proof[kDeviceProofMessageBytes];
+  buildDeviceProofMessage(appNonce_, deviceNonce_, req.counter, proof);
+  AuthResult res{};
+  res.result = Result::Ok;
+  // The counter is persisted before the app hears Ok, so no reboot can accept it a second time.
+  if (!ports_.computeAuthMac(proof, sizeof(proof), res.deviceMac) || !ports_.storeAuthCounter(req.counter)) {
+    helloDone_ = false;  // Nothing was accepted; start over from HELLO.
+    replyCode(Opcode::Auth, frame.header.sequence, Result::Internal);
+    return;
+  }
   authDone_ = true;
-  replyCode(Opcode::Auth, frame.header.sequence, Result::Ok);
+  uint8_t payload[kAuthResultBytes];
+  reply(Opcode::Auth, frame.header.sequence, payload, encodeAuthResult(res, payload, sizeof(payload)));
   if (state_ == State::Connected) transition(State::Authenticated, Reason::AuthOk, nowMs);
 }
 
@@ -357,7 +412,7 @@ void SyncCoordinator::sendStartSyncResult(Result result, uint16_t sequence) {
   StartSyncResult res{};
   res.result = result;
   memcpy(res.sessionId, sessionId_, kSessionIdBytes);
-  res.ipv4 = ipv4_;
+  memcpy(res.ipv4, ipv4_, kIpv4Bytes);
   res.httpPort = httpPort_;
   res.ttlSeconds = static_cast<uint16_t>(kTransferIdleMs / 1000u);
   uint8_t payload[kStartSyncResultBytes];
@@ -375,11 +430,14 @@ void SyncCoordinator::handleStartSync(const Frame& frame, uint32_t nowMs) {
     return;
   }
   if (sessionActive_) {
-    // Idempotent for the same session: the app lost the first result and asks again.
-    if (memcmp(req.sessionId, sessionId_, kSessionIdBytes) == 0) {
-      sendStartSyncResult(Result::Ok, frame.header.sequence);
-    } else {
+    if (memcmp(req.sessionId, sessionId_, kSessionIdBytes) != 0) {
       replyCode(Opcode::StartSync, frame.header.sequence, Result::Busy);
+    } else if (state_ == State::WifiConnecting) {
+      // The app asked again before Wi-Fi settled: the one final result answers the newest request.
+      startSyncSequence_ = frame.header.sequence;
+    } else {
+      // The app lost the result: the same answer again, under this request's sequence.
+      sendStartSyncResult(Result::Ok, frame.header.sequence);
     }
     return;
   }
@@ -406,9 +464,13 @@ void SyncCoordinator::handleStartSync(const Frame& frame, uint32_t nowMs) {
   memcpy(sessionId_, req.sessionId, kSessionIdBytes);
   sessionActive_ = true;
   startSyncSequence_ = frame.header.sequence;
+  declaredFiles_ = req.fileCount;
+  declaredBytes_ = req.totalBytes;
   committedFiles_ = 0;
-  failedFiles_ = 0;
-  ipv4_ = 0;
+  committedBytes_ = 0;
+  uploadInFlight_ = false;
+  inFlightBytes_ = 0;
+  memset(ipv4_, 0, sizeof(ipv4_));
   httpPort_ = 0;
   ports_.wifiStart();
   transition(State::WifiConnecting, Reason::StartSync, nowMs);
@@ -426,9 +488,9 @@ void SyncCoordinator::handleCancelSync(const Frame& frame, uint32_t nowMs) {
 
 // --- Wi-Fi and receiver inputs -----------------------------------------------------------------
 
-void SyncCoordinator::onWifiUp(uint32_t ipv4, uint16_t httpPort, uint32_t nowMs) {
+void SyncCoordinator::onWifiUp(const uint8_t (&ipv4)[kIpv4Bytes], uint16_t httpPort, uint32_t nowMs) {
   if (state_ != State::WifiConnecting) return;
-  ipv4_ = ipv4;
+  memcpy(ipv4_, ipv4, kIpv4Bytes);
   httpPort_ = httpPort;
   ports_.httpStart(sessionId_);
   transition(State::TransferReady, Reason::WifiUp, nowMs);
@@ -441,26 +503,40 @@ void SyncCoordinator::onWifiFailed(uint32_t nowMs) {
   fail(Reason::WifiFailed, nowMs);
 }
 
-void SyncCoordinator::onUploadStarted(uint32_t nowMs) {
+UploadAdmission SyncCoordinator::onUploadStarted(uint32_t expectedBytes, uint32_t nowMs) {
+  if (!acceptsUploads(state_)) return UploadAdmission::NoSession;
+  if (uploadInFlight_) return UploadAdmission::UploadInFlight;
+  if (committedFiles_ >= declaredFiles_) return UploadAdmission::FileLimit;
+  if (expectedBytes > declaredBytes_ - committedBytes_) return UploadAdmission::ByteLimit;
+  uploadInFlight_ = true;
+  inFlightBytes_ = expectedBytes;
+  lastActivityMs_ = nowMs;
   if (state_ == State::TransferReady) transition(State::Transferring, Reason::FirstUpload, nowMs);
-  if (state_ == State::Transferring) lastActivityMs_ = nowMs;
+  return UploadAdmission::Accept;
+}
+
+void SyncCoordinator::onUploadProgress(uint32_t nowMs) {
+  if (uploadInFlight_) lastActivityMs_ = nowMs;
 }
 
 void SyncCoordinator::onUploadCommitted(uint32_t nowMs) {
-  if (state_ != State::Transferring && state_ != State::TransferReady) return;
-  if (state_ == State::TransferReady) transition(State::Transferring, Reason::FirstUpload, nowMs);
+  if (!uploadInFlight_) return;
+  uploadInFlight_ = false;
   ++committedFiles_;
+  committedBytes_ += inFlightBytes_;
+  inFlightBytes_ = 0;
   lastActivityMs_ = nowMs;
 }
 
 void SyncCoordinator::onUploadFailed(uint32_t nowMs) {
-  if (state_ != State::Transferring && state_ != State::TransferReady) return;
-  ++failedFiles_;
+  if (!uploadInFlight_) return;
+  uploadInFlight_ = false;
+  inFlightBytes_ = 0;
   lastActivityMs_ = nowMs;
 }
 
 void SyncCoordinator::onSessionFinishRequested(uint32_t nowMs) {
-  if (state_ != State::Transferring && state_ != State::TransferReady) return;
+  if (!acceptsUploads(state_)) return;
   transition(State::Finishing, Reason::SessionFinished, nowMs);
   enterCleanup(Reason::SessionFinished, nowMs);
 }
@@ -471,9 +547,11 @@ void SyncCoordinator::onCleanupDone(uint32_t nowMs) {
   idleRequested_ = false;
   if (toIdle) {
     transition(State::Idle, Reason::CleanupDone, nowMs);
-  } else {
-    transition(State::Advertising, Reason::CleanupDone, nowMs);
+    return;
   }
+  const Reason blocker = advertisingBlocker();
+  transition(blocker == Reason::None ? State::Advertising : State::Idle,
+             blocker == Reason::None ? Reason::CleanupDone : blocker, nowMs);
 }
 
 // --- Timers ------------------------------------------------------------------------------------
@@ -484,17 +562,14 @@ void SyncCoordinator::tick(uint32_t nowMs) {
   switch (state_) {
     case State::Connected:
       if (inState >= kConnectedUnauthMs) {
-        ports_.disconnectCentral();
-        helloDone_ = false;
-        transition(State::Advertising, Reason::Timeout, nowMs);
+        releaseLink();
+        linkGone(Reason::Timeout, nowMs);
       }
       return;
     case State::Authenticated:
       if (sinceActivity >= kAuthIdleMs) {
-        ports_.disconnectCentral();
-        helloDone_ = false;
-        authDone_ = false;
-        transition(State::Advertising, Reason::Timeout, nowMs);
+        releaseLink();
+        linkGone(Reason::Timeout, nowMs);
       }
       return;
     case State::WifiConnecting:
@@ -519,8 +594,9 @@ StatusPayload SyncCoordinator::status() const {
   StatusPayload s{};
   s.state = toDeviceState(state_);
   s.batteryPercent = env_.batteryPercent;
-  s.flags = static_cast<uint8_t>((env_.sdMounted ? kStatusSdMounted : 0) | (ipv4_ ? kStatusWifiUp : 0) |
-                                 (env_.readerOpen ? kStatusReaderOpen : 0) | (env_.paired ? kStatusPaired : 0));
+  s.flags =
+      static_cast<uint8_t>((env_.sdMounted ? kStatusSdMounted : 0) | (acceptsUploads(state_) ? kStatusWifiUp : 0) |
+                           (env_.readerOpen ? kStatusReaderOpen : 0) | (env_.paired ? kStatusPaired : 0));
   s.freeHeap = env_.freeHeap;
   s.largestFreeBlock = env_.largestFreeBlock;
   s.pendingReceipts = env_.pendingReceipts;

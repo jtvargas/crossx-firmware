@@ -5,7 +5,7 @@
 
 // CrossX BLE control protocol, version 1. Pure encoding and validation: no radio, no heap, no
 // Arduino. The firmware's GATT server and the host tests both go through these functions, so
-// every bound the protocol document promises (docs/protocol-v1.md) is enforced here, once.
+// every bound the protocol document promises (docs/crossx/protocol-v1.md) is enforced here, once.
 //
 // A frame is a fixed 6-byte header followed by a payload whose length the header states:
 //   [opcode u8][flags u8][sequence u16 LE][payloadLength u16 LE][payload ...]
@@ -22,6 +22,7 @@ inline constexpr size_t kNonceBytes = 16;
 inline constexpr size_t kMacBytes = 32;
 inline constexpr size_t kSessionIdBytes = 16;
 inline constexpr size_t kFileIdBytes = 16;
+inline constexpr size_t kIpv4Bytes = 4;
 
 // 128-bit GATT UUIDs, text form as NimBLE takes them. The base is fixed for protocol v1; a
 // future incompatible protocol changes the service UUID rather than the payloads.
@@ -136,6 +137,13 @@ struct AuthRequest {
 };
 inline constexpr size_t kAuthRequestBytes = 4 + kMacBytes;
 
+// Ok carries the device's proof that it holds the pairing key too; every other result is one byte.
+struct AuthResult {
+  Result result;
+  uint8_t deviceMac[kMacBytes];  // HMAC-SHA256(pairingKey, buildDeviceProofMessage(...)); Ok only.
+};
+inline constexpr size_t kAuthResultBytes = 1 + kMacBytes;
+
 struct StartSyncRequest {
   uint8_t sessionId[kSessionIdBytes];
   uint16_t fileCount;
@@ -146,11 +154,11 @@ inline constexpr size_t kStartSyncRequestBytes = kSessionIdBytes + 2 + 4;
 struct StartSyncResult {
   Result result;
   uint8_t sessionId[kSessionIdBytes];
-  uint32_t ipv4;  // Host order; 0 while Wi-Fi is still connecting.
+  uint8_t ipv4[kIpv4Bytes];  // Dotted order: a.b.c.d is bytes a, b, c, d. All zero unless Ok.
   uint16_t httpPort;
-  uint16_t ttlSeconds;  // How long the HTTP receiver stays up without traffic.
+  uint16_t ttlSeconds;  // How long the HTTP receiver stays up without upload traffic.
 };
-inline constexpr size_t kStartSyncResultBytes = 1 + kSessionIdBytes + 4 + 2 + 2;
+inline constexpr size_t kStartSyncResultBytes = 1 + kSessionIdBytes + kIpv4Bytes + 2 + 2;
 
 struct StatusPayload {
   DeviceState state;
@@ -169,6 +177,8 @@ inline constexpr uint8_t kStatusPaired = 1u << 3;
 bool decodeHelloRequest(const uint8_t* payload, size_t length, HelloRequest& out);
 size_t encodeHelloResult(const HelloResult& in, uint8_t* out, size_t capacity);
 bool decodeAuthRequest(const uint8_t* payload, size_t length, AuthRequest& out);
+// kAuthResultBytes for Ok, 1 for anything else; 0 when it does not fit.
+size_t encodeAuthResult(const AuthResult& in, uint8_t* out, size_t capacity);
 bool decodeStartSyncRequest(const uint8_t* payload, size_t length, StartSyncRequest& out);
 size_t encodeStartSyncResult(const StartSyncResult& in, uint8_t* out, size_t capacity);
 size_t encodeStatus(const StatusPayload& in, uint8_t* out, size_t capacity);
@@ -180,6 +190,13 @@ size_t encodeResult(Result result, uint8_t* out, size_t capacity);
 inline constexpr size_t kAuthMessageBytes = 14 + kNonceBytes + kNonceBytes + 4;
 size_t buildAuthMessage(const uint8_t (&deviceNonce)[kNonceBytes], const uint8_t (&appNonce)[kNonceBytes],
                         uint32_t counter, uint8_t (&out)[kAuthMessageBytes]);
+
+// The bytes the device MACs to prove itself in AUTH's Ok result: "CROSSX-DEV-v1", the app nonce, the
+// device nonce, the accepted counter (LE). Its own label and the swapped nonce order keep it from ever
+// equalling an AUTH message, so neither side can reflect the other's MAC.
+inline constexpr size_t kDeviceProofMessageBytes = 13 + kNonceBytes + kNonceBytes + 4;
+size_t buildDeviceProofMessage(const uint8_t (&appNonce)[kNonceBytes], const uint8_t (&deviceNonce)[kNonceBytes],
+                               uint32_t counter, uint8_t (&out)[kDeviceProofMessageBytes]);
 
 // Constant-time comparison, so AUTH failures do not leak how many bytes matched.
 bool constantTimeEqual(const uint8_t* a, const uint8_t* b, size_t length);

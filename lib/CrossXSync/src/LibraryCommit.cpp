@@ -16,10 +16,7 @@ bool hexOfLength(const char* s, size_t n) {
   return s[n] == '\0';
 }
 
-bool keepChar(char c) {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '-' ||
-         c == '_' || c == '.';
-}
+bool keepChar(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'; }
 
 bool joinPath(const char* dir, const char* name, const char* ext, char* out, size_t capacity) {
   if (out == nullptr || capacity == 0) return false;
@@ -45,6 +42,14 @@ bool stagingPath(const char* fileId, char* out, size_t capacity) {
   return joinPath(kIncomingDir, fileId, ".part", out, capacity);
 }
 
+bool pendingReceiptPath(const char* fileId, char* out, size_t capacity) {
+  if (!validFileId(fileId)) {
+    if (out && capacity) out[0] = '\0';
+    return false;
+  }
+  return joinPath(kReceiptsDir, fileId, ".pending", out, capacity);
+}
+
 bool receiptPath(const char* fileId, char* out, size_t capacity) {
   if (!validFileId(fileId)) {
     if (out && capacity) out[0] = '\0';
@@ -60,7 +65,7 @@ size_t sanitizeTitle(const char* title, char* out, size_t capacity) {
   const size_t limit = capacity - 1 < kMaxTitleChars ? capacity - 1 : kMaxTitleChars;
   for (const char* p = title ? title : ""; *p && n < limit; ++p) {
     const char c = *p;
-    if (keepChar(c) && c != ' ' && c != '.') {
+    if (keepChar(c)) {
       out[n++] = c;
       lastWasDash = false;
     } else if (!lastWasDash) {
@@ -99,6 +104,19 @@ CommitDecision decide(const char* fileId, const char* digestHex, uint32_t expect
   if (!receiptExists) return CommitDecision::Accept;
   if (receiptDigestHex != nullptr && strcmp(receiptDigestHex, digestHex) == 0) return CommitDecision::AlreadyCommitted;
   return CommitDecision::RejectDigestChanged;
+}
+
+size_t buildReceiptMacMessage(const char* fileId, const char* sha256Hex, uint32_t size, const char* path, char* out,
+                              size_t capacity) {
+  if (out == nullptr || capacity == 0) return 0;
+  out[0] = '\0';
+  if (!validFileId(fileId) || !validDigestHex(sha256Hex) || path == nullptr || path[0] == '\0') return 0;
+  const int n = snprintf(out, capacity, "%s\n%s\n%lu\n%s", fileId, sha256Hex, static_cast<unsigned long>(size), path);
+  if (n < 0 || static_cast<size_t>(n) >= capacity || static_cast<size_t>(n) > kMaxReceiptMacMessageChars) {
+    out[0] = '\0';
+    return 0;
+  }
+  return static_cast<size_t>(n);
 }
 
 LeftoverAction leftoverAction(const char* name) {

@@ -2,11 +2,11 @@
 
 #include <cstdint>
 
-// What the radios may do in each power state (docs/architecture.md, "Power states"). Pure and
+// What the radios may do in each power state (docs/crossx/architecture.md, "Power states"). Pure and
 // constexpr so the tests can check every cell; the firmware's power manager reads the same table.
 //
 // Reading comes first: nothing here may cost a page turn. Standby is best effort and its
-// battery cost is a measured number (docs/hardware-x4.md), not a promise.
+// battery cost is a measured number (docs/crossx/hardware-x4.md), not a promise.
 namespace crossx::power {
 
 enum class Mode : uint8_t {
@@ -27,7 +27,7 @@ struct RadioBudget {
 inline constexpr uint16_t kAdvIntervalFastMs = 100;
 inline constexpr uint16_t kAdvIntervalSlowMs = 1000;
 // Standby holds the device awake at most this long without a session, then it powers off.
-// Measured standby current decides whether this stays (docs/hardware-x4.md, decision gate A).
+// Measured standby current decides whether this stays (docs/crossx/hardware-x4.md, decision gate A).
 inline constexpr uint32_t kStandbyMaxMs = 30u * 60u * 1000u;
 
 constexpr RadioBudget budget(Mode mode, bool userEnabledBleWhileReading) {

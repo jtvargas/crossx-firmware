@@ -23,7 +23,7 @@ What is known from CrossPoint and the FreeInk SDK, what is measured, and what is
 
 - "Always listening" over BLE is impossible in deep sleep. A standby mode has to keep the chip awake (light sleep with BLE modem sleep at best). Its cost is unmeasured.
 - Running the BLE peripheral while reading is a RAM question, not a feature flag: ~49 KB on a ~380 KB chip that also needs 32 KB contiguous for the EPUB inflater.
-- Wi-Fi and BLE coexist on one radio; a transfer while advertising will slow one or the other. Sessions stop advertising once Wi-Fi is up.
+- Wi-Fi and BLE coexist on one radio; a transfer while advertising would slow one or the other. Advertising stops as soon as the app connects and stays off for the whole session, so a transfer never shares the radio with it.
 
 ## Measurements (fill in on real hardware)
 

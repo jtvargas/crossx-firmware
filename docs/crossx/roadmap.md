@@ -7,9 +7,10 @@ Phased so that every step leaves a bootable reader. A phase is done when its exi
 - [x] Fork CrossPoint with full history, pinned `freeink-sdk`
 - [x] Reproduce the upstream `default` build with the pinned toolchain
 - [x] `crossx_x4` build env with NimBLE peripheral + broadcaster roles
-- [x] `lib/CrossXSync`: protocol v1, `SyncCoordinator`, power policy, commit rules, 52 host tests
+- [x] `lib/CrossXSync`: protocol v1, `SyncCoordinator`, power policy, commit rules, host tests
 - [x] Docs: README, architecture, protocol, hardware, recovery, roadmap
 - [x] CI builds `crossx_x4` and runs the host suite
+- [x] Web installer on GitHub Pages (CrossPoint's OTA-slot install, rollback, full-flash backup/restore)
 - [ ] Baseline measurements table filled from a real X4 (`docs/crossx/hardware-x4.md`)
 - [ ] Recovery path verified on the actual unit
 
@@ -36,7 +37,7 @@ Phased so that every step leaves a bootable reader. A phase is done when its exi
 ## Phase 3: CrossX app integration
 
 - `CrossXReaderDeviceService` in the iOS app beside Stock and CrossPoint transports
-- Queue items carry `fileId` and SHA-256; "On Device" only after a receipt
+- Queue items carry `fileId` and SHA-256; "On Device" only after a receipt whose MAC verifies
 - Foreground and background scenarios documented as best effort
 
 ## Phase 4: minimal reading UI

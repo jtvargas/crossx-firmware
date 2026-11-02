@@ -61,6 +61,7 @@ jobs:
             }
 
             const builds = [
+              { name: 'firmware-crossx_x4.bin', device: 'CrossX X4' },
               { name: 'firmware.bin', device: 'X3 / X4' },
               { name: 'firmware-sticky.bin', device: 'Sticky' },
               { name: 'firmware-x4pro.bin', device: 'X4 Pro' },
@@ -94,7 +95,9 @@ jobs:
               });
               body += `Automatically generated for the latest commit of this PR (\`${shortSha}\`).\n\n`;
               body += `${links.join('\n')}\n\n`;
-              body += 'Download the file for your device, extract the `.bin` from the ZIP, then flash it with ';
+              body += 'Download the file for your device and extract the `.bin` from the ZIP. ';
+              body += 'Install `firmware-crossx_x4.bin` with the [CrossX installer](https://jtvargas.github.io/crossx-firmware/) ';
+              body += '(Advanced → Custom .bin); the other boards install with ';
               body += '[CrossPoint Reader Flash Tools](https://crosspointreader.com/#flash-tools). ';
               body += '**Make sure you use the correct firmware file for your device.**';
 

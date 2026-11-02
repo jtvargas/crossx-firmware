@@ -1,0 +1,96 @@
+name: Web installer (GitHub Pages)
+
+# Publishes site/ with the firmware CI already built for the same main commit, so the
+# installer never serves an image that did not pass CI. Manual runs reuse the latest
+# successful main build.
+on:
+  workflow_run:
+    workflows:
+      - CI (build)
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pick the CI run to publish
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RUN_ID" ]; then
+            read -r RUN_ID RUN_SHA < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch main \
+              --event push --status success --limit 1 --json databaseId,headSha --jq '.[0] | "\(.databaseId) \(.headSha)"')
+          fi
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "No successful CI run on main to publish."; exit 1; }
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "sha=$RUN_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Test installer logic
+        run: node --test site/test/*.test.mjs
+
+      - name: Download CrossX firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware-crossx_x4.bin
+          path: fw/crossx_x4
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Download CrossPoint firmware
+        uses: actions/download-artifact@v4
+        with:
+          name: firmware.bin
+          path: fw/default
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Assemble site
+        env:
+          GITHUB_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          python3 scripts/build_flasher_site.py --out build/site \
+            --firmware crossx_x4=fw/crossx_x4/firmware.bin \
+            --firmware default=fw/default/firmware.bin
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: build/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

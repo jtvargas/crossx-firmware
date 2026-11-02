@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Install CrossX on the XTEINK X4</title>
+    <meta name="description" content="Install CrossX Firmware on an XTEINK X4 from your browser over USB. Reading-first firmware with opt-in sync from the CrossX app." />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="assets/site.css" />
+    <script type="module" src="assets/app.js"></script>
+  </head>
+  <body>
+    <header class="bar">
+      <a class="wordmark" href="./" aria-label="CrossX home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19" /></svg>
+        CrossX
+      </a>
+      <nav>
+        <a href="https://github.com/jtvargas/crossx-firmware#readme">Docs</a>
+        <a href="https://github.com/jtvargas/crossx-firmware">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <p class="eyebrow"><span class="badge">Pre-alpha</span> For the original XTEINK X4</p>
+        <h1>Install CrossX</h1>
+        <p class="lede">
+          Reading-first firmware built on CrossPoint Reader, with opt-in sync from the CrossX app.
+          Connect your reader over USB and install it from this page.
+        </p>
+      </section>
+
+      <div id="no-serial" class="notice warn" hidden>
+        <strong>Open this page in Chrome or Edge on a computer to install over USB.</strong>
+        This browser cannot talk to USB serial devices. You can still read the steps below.
+      </div>
+
+      <ol class="steps">
+        <!-- Step 1: device -->
+        <li class="step complete" data-step="1">
+          <h2><span class="num">1</span> Your reader</h2>
+          <div class="choices one">
+            <button type="button" class="choice" id="device-x4" aria-pressed="true">
+              <span class="title">XTEINK X4</span>
+              <span class="sub">ESP32-C3 · 800 × 480</span>
+            </button>
+          </div>
+          <p class="hint">X4 Pro support is planned. CrossX has only been prepared for the original X4.</p>
+        </li>
+
+        <!-- Step 2: firmware -->
+        <li class="step" data-step="2">
+          <h2><span class="num">2</span> Firmware</h2>
+          <p id="builds-status" class="hint" aria-live="polite">Checking the latest build…</p>
+          <div id="builds" class="choices" role="group" aria-label="Firmware"></div>
+          <details class="advanced">
+            <summary>Advanced: install a .bin from your computer</summary>
+            <div class="choices one">
+              <button type="button" class="choice" data-fw="custom" aria-pressed="false">
+                <span class="title">Custom .bin</span>
+                <span class="sub">An ESP32-C3 app image, for example a local <code>pio run -e crossx_x4</code> build</span>
+              </button>
+            </div>
+            <label class="file" hidden>
+              <input type="file" id="custom-file" accept=".bin,application/octet-stream" />
+              <span id="custom-file-name">Choose firmware.bin</span>
+            </label>
+          </details>
+        </li>
+
+        <!-- Step 3: install -->
+        <li class="step" data-step="3" hidden>
+          <h2><span class="num">3</span> Connect and install</h2>
+          <ol class="checklist">
+            <li>Connect the X4 to this computer with a USB cable that carries data.</li>
+            <li>Select <em>Install</em>, pick the reader in the browser's device list, then select <em>Connect</em>.</li>
+            <li>Keep the cable connected until the install finishes. It takes about two minutes.</li>
+          </ol>
+          <label class="ack" id="ack-row" hidden>
+            <input type="checkbox" id="ack" />
+            <span>
+              I know CrossX is pre-alpha and I have a way back: CrossPoint installs on this X4, and I have read the
+              <a href="https://github.com/jtvargas/crossx-firmware/blob/main/docs/crossx/flashing-and-recovery.md">recovery notes</a>.
+            </span>
+          </label>
+          <div class="actions">
+            <button type="button" class="primary" id="install" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z" /></svg>
+              <span id="install-label">Install via USB</span>
+            </button>
+            <span id="install-meta" class="meta"></span>
+          </div>
+          <div id="connection-issue" class="notice warn" role="status" hidden></div>
+          <details class="help" id="not-listed">
+            <summary>My reader isn't listed</summary>
+            <p>Use a data cable (many charging cables are power only), try another USB port, and close other flashing tools or serial monitors.</p>
+            <p>
+              Some X4 units ship with USB flashing locked. If yours never appears, use
+              <a href="https://crosspointreader.com/unlock?device=x4">CrossPoint's unlock and install options</a>
+              and read <a href="https://github.com/jtvargas/crossx-firmware/blob/main/docs/fix-bricked-xteink.md">Fix a bricked Xteink</a>.
+            </p>
+          </details>
+        </li>
+      </ol>
+
+      <!-- Progress -->
+      <section id="progress" class="card" hidden aria-live="polite">
+        <h2 id="progress-title">Installing…</h2>
+        <ol id="progress-steps" class="progress-steps"></ol>
+        <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <span id="meter-fill"></span>
+        </div>
+        <p id="progress-detail" class="meta"></p>
+        <div id="progress-error" class="notice error" role="alert" hidden>
+          <strong id="progress-error-note"></strong>
+          <p id="progress-error-text"></p>
+          <button type="button" class="link" id="retry">Try again</button>
+        </div>
+      </section>
+
+      <!-- Restart -->
+      <section id="restart" class="card" hidden>
+        <h2>Restart your reader</h2>
+        <p>Press the <strong>Reset</strong> button, then press and hold the power button for 3–5 seconds.</p>
+        <div id="confirm-row">
+          <p class="meta">Wait for the home screen to appear on the X4.</p>
+          <button type="button" class="primary" id="confirm-started">It started</button>
+          <details class="help">
+            <summary>Something went wrong</summary>
+            <p>Repeat the restart steps. If the reader comes back with its previous firmware, install a second time. You can always roll back from <em>Recovery</em> below.</p>
+          </details>
+        </div>
+        <p id="welcome" class="welcome" hidden>
+          <span class="spark" aria-hidden="true"></span>
+          <span>You're ready to read. Pair the CrossX app from <em>Settings → CrossX</em> once sync lands in a later build.</span>
+        </p>
+      </section>
+
+      <!-- Recovery -->
+      <section class="recovery">
+        <h2>Recovery</h2>
+        <p class="hint">Every install keeps the previous firmware in the other app slot. These tools talk to the same USB connection.</p>
+        <div class="tools">
+          <article class="tool">
+            <h3>Roll back</h3>
+            <p>Boot the firmware that ran before the last install. Takes a few seconds; nothing is downloaded.</p>
+            <button type="button" class="secondary" id="rollback">Roll back via USB</button>
+          </article>
+          <article class="tool">
+            <h3>Back up flash</h3>
+            <p>Save all 16 MB of the reader's flash, including the stock firmware, before your first install. Takes about 25 minutes.</p>
+            <button type="button" class="secondary" id="backup">Save backup</button>
+          </article>
+          <article class="tool">
+            <h3>Restore a backup</h3>
+            <p>Write a 16 MB backup made here back to the reader. This replaces everything on flash, including settings.</p>
+            <label class="file">
+              <input type="file" id="restore-file" accept=".bin,application/octet-stream" />
+              <span id="restore-file-name">Choose backup .bin</span>
+            </label>
+            <label class="ack compact">
+              <input type="checkbox" id="restore-ack" />
+              <span>I understand this replaces everything on flash.</span>
+            </label>
+            <button type="button" class="secondary danger" id="restore" disabled>Restore via USB</button>
+          </article>
+        </div>
+        <p class="hint">
+          Official CrossPoint releases and the XTEINK factory firmware are on
+          <a href="https://crosspointreader.com/#flash-tools">crosspointreader.com</a>, which uses the same install method.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        CrossX Firmware is MIT licensed and not affiliated with XTEINK or the CrossPoint maintainers.
+        The installer is adapted from <a href="https://github.com/crosspoint-reader/crosspoint-tools">CrossPoint Tools</a>
+        and uses <a href="https://github.com/espressif/esptool-js">esptool-js</a>.
+      </p>
+      <p id="build-info" class="meta"></p>
+    </footer>
+  </body>
+</html>

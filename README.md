@@ -53,6 +53,12 @@ The honest hardware notes, including what is *not* yet known about standby batte
 
 > **Before flashing anything:** read [docs/crossx/flashing-and-recovery.md](docs/crossx/flashing-and-recovery.md). Some X4 units are USB-locked and can only be recovered through specific paths. Do not flash an experimental image without a verified way back.
 
+## Installing
+
+Open the [CrossX web installer](https://jtvargas.github.io/crossx-firmware/) in Chrome or Edge on a computer, connect the X4 over USB, and follow the three steps. It installs the same way [crosspointreader.com](https://crosspointreader.com/#flash-tools) does: the new image goes into the app slot that is not running, then the boot selector switches to it, so the previous firmware stays on the reader. The installer also rolls back to that previous firmware, saves a full 16 MB flash backup, and restores one.
+
+It publishes the `crossx_x4` and `default` builds from the latest green `main` commit. A local build installs through *Advanced → Custom .bin*.
+
 ## Building
 
 Prerequisites: Python 3.10+, [pioarduino core 6.1.19](https://github.com/pioarduino/platformio-core), `clang-format` 21, CMake 3.16+. The details are in CrossPoint's [getting-started guide](docs/contributing/getting-started.md), which applies unchanged.
@@ -74,7 +80,15 @@ cmake -S lib/CrossXSync/test -B build/crossx && cmake --build build/crossx && ct
 cmake -S test -B build/test && cmake --build build/test && ctest --test-dir build/test -j
 ```
 
-Flashing: `pio run -e crossx_x4 -t upload` once you have read the recovery notes.
+Flashing from the command line: `pio run -e crossx_x4 -t upload` once you have read the recovery notes.
+
+```bash
+# Web installer, locally with your own builds (serve build/site over http://localhost)
+python3 scripts/build_flasher_site.py --out build/site \
+  --firmware crossx_x4=.pio/build/crossx_x4/firmware.bin --firmware default=.pio/build/default/firmware.bin
+python3 -m http.server -d build/site 8000
+node --test site/test/*.test.mjs   # installer OTA-slot and image checks
+```
 
 ## Repository map
 
@@ -84,8 +98,10 @@ lib/CrossXSync/        CrossX core: pure C++, no radio or filesystem, fully host
   src/SyncCoordinator.*  the one state machine that owns a sync session
   src/SyncPowerPolicy.h  what each power mode allows the radios to do
   src/LibraryCommit.*    staging/receipt/commit paths and the idempotency decision table
-  test/                  GoogleTest suite (52 tests)
+  test/                  GoogleTest suite
 docs/crossx/           architecture, protocol v1, hardware notes, flashing & recovery, roadmap
+site/                  the web installer (static): WebSerial + esptool-js, published to GitHub Pages
+scripts/build_flasher_site.py  assembles site/ with firmware images and manifest.json
 src/, lib/, freeink-sdk/   CrossPoint Reader, unchanged apart from the crossx_x4 build env
 platformio.ini         build environments; CrossX adds [env:crossx_x4]
 ```
@@ -104,7 +120,7 @@ platformio.ini         build environments; CrossX adds [env:crossx_x4]
 1. **Reading first.** No sync feature may slow a page turn, grow the reader's heap budget, or touch an open book.
 2. **BLE is a control plane.** Discovery, pairing, authentication, "start a sync". Never file bytes.
 3. **Wi-Fi is temporary.** Station mode, saved credentials, up only inside an authenticated session, torn down after.
-4. **Commits are durable or they did not happen.** `.part` → verify → rename → receipt. Interrupted uploads leave nothing the library can see.
+4. **Commits are durable or they did not happen.** `.part` → verify → pending receipt → rename → receipt. Interrupted uploads leave nothing the library can see.
 5. **Everything is bounded.** Frame sizes, file sizes, retries, timeouts, counters. The bounds live in headers and the tests pin them.
 6. **No promises the hardware has not proven.** Standby battery life, background delivery on iOS, and recovery paths are documented as measured or as unknown, never assumed.
 

@@ -17,6 +17,10 @@ XTEINK X4 with the CrossX sync layer. Read [README.md](README.md) and
   after touching the core, and `pio run -e crossx_x4` after touching the build.
 - Hardware claims (standby current, heap, latency) come from `docs/crossx/hardware-x4.md`
   measurements, never from datasheets alone.
+- The web installer is `site/` (static, no build step), assembled with firmware by
+  `scripts/build_flasher_site.py` and published by `.github/workflows/pages.yml` from the CI
+  artifacts of the same `main` commit. Its OTA-slot logic in `site/assets/flasher.js` decides
+  where bytes land on a reader: run `node --test site/test/*.test.mjs` after touching it.
 - In this fork, Devin acts as `jtvargas` and may commit, push, and open PRs when Jonathan asks.
   The "Human ownership" rules below are upstream CrossPoint's; they still describe the care
   expected, and hardware testing before merge remains Jonathan's job.

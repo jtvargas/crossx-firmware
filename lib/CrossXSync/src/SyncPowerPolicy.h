@@ -17,9 +17,9 @@ enum class Mode : uint8_t {
 
 struct RadioBudget {
   bool bleAllowed;
-  bool wifiAllowed;          // Only inside an authenticated session.
-  uint16_t advIntervalMs;    // 0 when BLE is not allowed.
-  uint32_t standbyMaxMs;     // How long standby may hold the device awake before PowerOff. 0: n/a.
+  bool wifiAllowed;        // Only inside an authenticated session.
+  uint16_t advIntervalMs;  // 0 when BLE is not allowed.
+  uint32_t standbyMaxMs;   // How long standby may hold the device awake before PowerOff. 0: n/a.
 };
 
 // Advertising intervals. The slow one is for standby, where the app can tolerate a second of

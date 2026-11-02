@@ -42,10 +42,10 @@ size_t sanitizeTitle(const char* title, char* out, size_t capacity);
 
 // What the receiver should do with an upload for `fileId`, given what the receipt store knows.
 enum class CommitDecision : uint8_t {
-  Accept,              // No receipt: stream, verify, commit.
-  AlreadyCommitted,    // Same id, same digest: answer with the existing receipt, write nothing.
-  RejectDigestChanged, // Same id, different digest: refuse; the app must use a new id.
-  RejectBadRequest,    // Invalid id, digest, or length.
+  Accept,               // No receipt: stream, verify, commit.
+  AlreadyCommitted,     // Same id, same digest: answer with the existing receipt, write nothing.
+  RejectDigestChanged,  // Same id, different digest: refuse; the app must use a new id.
+  RejectBadRequest,     // Invalid id, digest, or length.
 };
 
 CommitDecision decide(const char* fileId, const char* digestHex, uint32_t expectedLength, bool receiptExists,

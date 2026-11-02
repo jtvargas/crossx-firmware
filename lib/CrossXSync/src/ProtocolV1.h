@@ -107,8 +107,8 @@ enum class ParseStatus : uint8_t {
 ParseStatus parseFrame(const uint8_t* bytes, size_t length, Frame& out);
 
 // Writes header + payload into `out`; returns bytes written or 0 when it does not fit.
-size_t encodeFrame(Opcode opcode, uint16_t sequence, const uint8_t* payload, size_t payloadLength,
-                   uint8_t* out, size_t capacity);
+size_t encodeFrame(Opcode opcode, uint16_t sequence, const uint8_t* payload, size_t payloadLength, uint8_t* out,
+                   size_t capacity);
 
 // --- Payloads. Fixed layouts, little-endian, decoded with explicit bounds. ---
 

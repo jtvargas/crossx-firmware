@@ -9,8 +9,7 @@ using namespace protocol;
 namespace {
 
 constexpr bool isSessionState(State s) {
-  return s == State::WifiConnecting || s == State::TransferReady || s == State::Transferring ||
-         s == State::Finishing;
+  return s == State::WifiConnecting || s == State::TransferReady || s == State::Transferring || s == State::Finishing;
 }
 
 constexpr bool radioOn(State s) { return s != State::Idle; }
@@ -219,7 +218,8 @@ void SyncCoordinator::onControlWrite(const uint8_t* bytes, size_t length, uint32
   if (parsed != ParseStatus::Ok) {
     // Malformed input is answered once with the sequence it carried, if there was one.
     const uint16_t seq = length >= 4 ? static_cast<uint16_t>(bytes[2] | (bytes[3] << 8)) : 0;
-    const Opcode op = length >= 1 ? static_cast<Opcode>(bytes[0] & ~static_cast<uint8_t>(Opcode::ResultBit)) : Opcode::Hello;
+    const Opcode op =
+        length >= 1 ? static_cast<Opcode>(bytes[0] & ~static_cast<uint8_t>(Opcode::ResultBit)) : Opcode::Hello;
     replyCode(op, seq, Result::BadFrame);
     return;
   }
